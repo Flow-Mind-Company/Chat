@@ -64,24 +64,29 @@ final actor Recorder {
         let recordingUrl = FileManager.tempDirPath.appendingPathComponent(UUID().uuidString + fileExt)
 
         do {
-            try audioSession.setCategory(.record, mode: .default)
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .default,
+                options: [.defaultToSpeaker, .allowBluetooth]
+            )
             try audioSession.setActive(true)
-            audioRecorder = try AVAudioRecorder(url: recordingUrl, settings: settings)
-            audioRecorder?.isMeteringEnabled = true
-            audioRecorder?.record()
+            let recorder = try AVAudioRecorder(url: recordingUrl, settings: settings)
+            recorder.isMeteringEnabled = true
+            guard recorder.record() else {
+                stopRecording()
+                return nil
+            }
+            audioRecorder = recorder
             durationProgressHandler(0.0, [])
 
-            DispatchQueue.main.async { [weak self] in
-                self?.audioTimer?.invalidate()
-                self?.audioTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                    Task {
-                        await self?.onTimer(durationProgressHandler)
-                    }
+            let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+                Task {
+                    await self?.onTimer(durationProgressHandler)
                 }
-
-                if let audioTimer = self?.audioTimer {
-                    RunLoop.current.add(audioTimer, forMode: .common)
-                }
+            }
+            audioTimer = timer
+            Task { @MainActor in
+                RunLoop.main.add(timer, forMode: .common)
             }
 
             return recordingUrl
@@ -108,6 +113,7 @@ final actor Recorder {
         audioRecorder = nil
         audioTimer?.invalidate()
         audioTimer = nil
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     private func fileExtension(for formatID: AudioFormatID) -> String? {
