@@ -22,7 +22,7 @@ final actor Recorder {
     private var recorderSettings = RecorderSettings()
 
     var isAllowedToRecordAudio: Bool {
-        AVAudioApplication.shared.recordPermission == .granted
+        audioSession.recordPermission == .granted
     }
 
     var isRecording: Bool {
@@ -74,6 +74,7 @@ final actor Recorder {
             let recorder = try AVAudioRecorder(url: recordingUrl, settings: settings)
             recorder.isMeteringEnabled = true
             guard recorder.record() else {
+                debugPrint("[Recorder] AVAudioRecorder failed to start recording")
                 stopRecording()
                 return nil
             }
@@ -93,6 +94,7 @@ final actor Recorder {
 
             return recordingUrl
         } catch {
+            debugPrint("[Recorder] Failed to start recording: \(error)")
             stopRecording()
             return nil
         }
@@ -194,7 +196,7 @@ public struct RecorderSettings : Codable,Hashable {
 extension AVAudioSession {
     func requestRecordPermission() async -> Bool {
         await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { granted in
+            self.requestRecordPermission { granted in
                 continuation.resume(returning: granted)
             }
         }
