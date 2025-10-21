@@ -73,6 +73,11 @@ final actor Recorder {
             try audioSession.setActive(true)
             let recorder = try AVAudioRecorder(url: recordingUrl, settings: settings)
             recorder.isMeteringEnabled = true
+            guard recorder.prepareToRecord() else {
+                debugPrint("[Recorder] AVAudioRecorder failed to prepare")
+                stopRecording()
+                return nil
+            }
             guard recorder.record() else {
                 debugPrint("[Recorder] AVAudioRecorder failed to start recording")
                 stopRecording()
