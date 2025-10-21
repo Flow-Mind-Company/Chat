@@ -16,6 +16,7 @@ final actor Recorder {
     private let audioSession = AVAudioSession()
     private var audioRecorder: AVAudioRecorder?
     private var audioTimer: Timer?
+    private var recordingStartDate: Date?
 
     private var soundSamples: [CGFloat] = []
     private var recorderSettings = RecorderSettings()
@@ -78,6 +79,7 @@ final actor Recorder {
             }
             audioRecorder = recorder
             durationProgressHandler(0.0, [])
+            recordingStartDate = Date()
 
             let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
                 Task {
@@ -103,9 +105,15 @@ final actor Recorder {
             let adjustedPower = 1 - (max(power, -60) / 60 * -1)
             soundSamples.append(CGFloat(adjustedPower))
         }
-        if let time = audioRecorder?.currentTime {
-            durationProgressHandler(time, soundSamples)
+        let elapsed: Double
+        if let recorder = audioRecorder, recorder.isRecording {
+            elapsed = recorder.currentTime
+        } else if let start = recordingStartDate {
+            elapsed = Date().timeIntervalSince(start)
+        } else {
+            elapsed = 0
         }
+        durationProgressHandler(elapsed, soundSamples)
     }
 
     func stopRecording() {
@@ -113,6 +121,7 @@ final actor Recorder {
         audioRecorder = nil
         audioTimer?.invalidate()
         audioTimer = nil
+        recordingStartDate = nil
         try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
