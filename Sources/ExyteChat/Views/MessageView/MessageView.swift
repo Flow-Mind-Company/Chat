@@ -264,7 +264,6 @@ struct MessageView: View {
     }
 
     @ViewBuilder
-    @ViewBuilder
     func textWithTimeView(_ message: Message) -> some View {
         let messageView = MessageTextView(
             text: message.text, messageStyler: messageStyler,
