@@ -86,18 +86,13 @@ final class InputViewModel: ObservableObject {
             showPicker = true
         case .send:
             send()
-        case .recordAudioTap:
-            Task {
-                state = await recorder.isAllowedToRecordAudio ? .isRecordingTap : .waitingForRecordingPermission
-                recordAudio()
-            }
-        case .recordAudioHold:
+        case .recordAudioTap, .recordAudioHold:
             Task {
                 state = await recorder.isAllowedToRecordAudio ? .isRecordingHold : .waitingForRecordingPermission
                 recordAudio()
             }
         case .recordAudioLock:
-            state = .isRecordingTap
+            break
         case .stopRecordAudio:
             Task {
                 await recorder.stopRecording()
@@ -146,7 +141,7 @@ final class InputViewModel: ObservableObject {
                 }
             }
             if state == .waitingForRecordingPermission {
-                state = .isRecordingTap
+                state = .isRecordingHold
             }
             attachments.recording?.url = url
         }
