@@ -39,7 +39,6 @@ public enum InputViewState: Sendable {
 
     case waitingForRecordingPermission
     case isRecordingHold
-    case isRecordingTap
     case hasRecording
     case playingRecording
     case pausedRecording
@@ -48,7 +47,7 @@ public enum InputViewState: Sendable {
 
     var canSend: Bool {
         switch self {
-        case .hasTextOrMedia, .hasRecording, .isRecordingTap, .playingRecording, .pausedRecording: return true
+        case .hasTextOrMedia, .hasRecording, .playingRecording, .pausedRecording: return true
         default: return false
         }
     }
@@ -91,16 +90,9 @@ struct InputView: View {
         viewModel.state
     }
     
-    @State private var overlaySize: CGSize = .zero
-    
-    @State private var recordButtonFrame: CGRect = .zero
-    @State private var lockRecordFrame: CGRect = .zero
-    @State private var deleteRecordFrame: CGRect = .zero
-    
-    @State private var dragStart: Date?
-    @State private var tapDelayTimer: Timer?
-    @State private var cancelGesture = false
-    private let tapDelay = 0.2
+    @State private var isRecordingGestureActive = false
+    @State private var shouldCancelRecording = false
+    private let cancelTranslationThreshold: CGFloat = 60
     
     var body: some View {
         VStack {
@@ -133,7 +125,7 @@ struct InputView: View {
     
     @ViewBuilder
     var leftView: some View {
-        if [.isRecordingTap, .isRecordingHold, .hasRecording, .playingRecording, .pausedRecording].contains(state) {
+        if [.isRecordingHold, .hasRecording, .playingRecording, .pausedRecording].contains(state) {
             deleteRecordButton
         } else {
             switch style {
@@ -161,8 +153,6 @@ struct InputView: View {
                 recordWaveform
             case .isRecordingHold:
                 swipeToCancel
-            case .isRecordingTap:
-                recordingInProgress
             default:
                 TextInputView(
                     text: $viewModel.text,
@@ -184,7 +174,7 @@ struct InputView: View {
                 if case .message = style, isMediaAvailable() {
                     cameraButton
                 }
-            case .isRecordingHold, .isRecordingTap:
+            case .isRecordingHold:
                 recordDurationInProcess
             case .hasRecording:
                 recordDuration
@@ -227,35 +217,14 @@ struct InputView: View {
         if state == .editing {
             editingButtons
                 .frame(height: 48)
-        }
-        else {
-            ZStack {
-                if [.isRecordingTap, .isRecordingHold].contains(state) {
-                    RecordIndicator()
-                        .viewSize(80)
-                        .foregroundColor(theme.colors.sendButtonBackground)
-                }
-                Group {
-                    if state.canSend || !isAudioAvailable()   {
-                        sendButton
-                            .disabled(!state.canSend)
-                    } else {
-                        recordButton
-                            .highPriorityGesture(dragGesture())
-                    }
-                }
-                .compositingGroup()
-                .overlay(alignment: .top) {
-                    Group {
-                        if state == .isRecordingTap {
-                            stopRecordButton
-                        } else if state == .isRecordingHold {
-                            lockRecordButton
-                        }
-                    }
-                    .sizeGetter($overlaySize)
-                    // hardcode 28 for now because sizeGetter returns 0 somehow
-                    .offset(y: (state == .isRecordingTap ? -28 : -overlaySize.height) - 24)
+        } else {
+            Group {
+                if state.canSend || !isAudioAvailable() {
+                    sendButton
+                        .disabled(!state.canSend)
+                } else {
+                    recordButton
+                        .highPriorityGesture(dragGesture())
                 }
             }
             .viewSize(48)
@@ -363,8 +332,9 @@ struct InputView: View {
     var recordButton: some View {
         theme.images.inputView.microphone
             .viewSize(48)
-            .circleBackground(theme.colors.sendButtonBackground)
-            .frameGetter($recordButtonFrame)
+            .circleBackground(state == .isRecordingHold ? theme.colors.recordDot : theme.colors.sendButtonBackground)
+            .scaleEffect(isRecordingGestureActive ? 1.05 : 1.0)
+            .animation(.easeInOut(duration: 0.12), value: isRecordingGestureActive)
     }
     
     var deleteRecordButton: some View {
@@ -375,67 +345,18 @@ struct InputView: View {
                 .viewSize(24)
                 .padding(EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 8))
         }
-        .frameGetter($deleteRecordFrame)
-    }
-    
-    var stopRecordButton: some View {
-        Button {
-            onAction(.stopRecordAudio)
-        } label: {
-            theme.images.recordAudio.stopRecord
-                .viewSize(28)
-                .background(
-                    Capsule()
-                        .fill(Color.white)
-                        .shadow(color: .black.opacity(0.4), radius: 1)
-                )
-        }
-    }
-    
-    var lockRecordButton: some View {
-        Button {
-            onAction(.recordAudioLock)
-        } label: {
-            VStack(spacing: 20) {
-                theme.images.recordAudio.lockRecord
-                theme.images.recordAudio.sendRecord
-            }
-            .frame(width: 28)
-            .padding(.vertical, 16)
-            .background(
-                Capsule()
-                    .fill(Color.white)
-                    .shadow(color: .black.opacity(0.4), radius: 1)
-            )
-        }
-        .frameGetter($lockRecordFrame)
     }
     
     var swipeToCancel: some View {
         HStack {
             Spacer()
-            Button {
-                onAction(.deleteRecord)
-            } label: {
-                HStack {
-                    theme.images.recordAudio.cancelRecord
-                        .renderingMode(.template)
-                        .foregroundStyle(theme.colors.mainText)
-                    Text(localization.cancelButtonText)
-                        .font(.footnote)
-                        .foregroundColor(theme.colors.mainText)
-                }
+            HStack(spacing: 6) {
+                theme.images.recordAudio.cancelRecord
+                    .renderingMode(.template)
+                Text(localization.cancelButtonText)
+                    .font(.footnote)
             }
-            Spacer()
-        }
-    }
-    
-    var recordingInProgress: some View {
-        HStack {
-            Spacer()
-            Text(localization.recordingText)
-                .font(.footnote)
-                .foregroundColor(theme.colors.mainText)
+            .foregroundStyle(shouldCancelRecording ? theme.colors.recordDot : theme.colors.mainText)
             Spacer()
         }
     }
@@ -516,52 +437,36 @@ struct InputView: View {
     }
 
     func dragGesture() -> some Gesture {
-        DragGesture(minimumDistance: 0.0, coordinateSpace: .global)
-            .onChanged { [state] value in
-                if dragStart == nil {
-                    dragStart = Date()
-                    cancelGesture = false
-                    tapDelayTimer = Timer.scheduledTimer(withTimeInterval: tapDelay, repeats: false) { _ in
-                        if state != .isRecordingTap, state != .waitingForRecordingPermission {
-                            DispatchQueue.main.async {
-                                self.onAction(.recordAudioHold)
-                            }
-                        }
+        DragGesture(minimumDistance: 0.0, coordinateSpace: .local)
+            .onChanged { value in
+                if !isRecordingGestureActive {
+                    isRecordingGestureActive = true
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        shouldCancelRecording = false
                     }
+                    onAction(.recordAudioHold)
                 }
-                
-                if value.location.y < lockRecordFrame.minY,
-                   value.location.x > recordButtonFrame.minX {
-                    cancelGesture = true
-                    onAction(.recordAudioLock)
-                }
-                
-                if value.location.x < UIScreen.main.bounds.width/2,
-                   value.location.y > recordButtonFrame.minY {
-                    cancelGesture = true
-                    onAction(.deleteRecord)
+
+                let isCancelling = value.translation.width < -cancelTranslationThreshold
+                if shouldCancelRecording != isCancelling {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        shouldCancelRecording = isCancelling
+                    }
                 }
             }
-            .onEnded() { value in
-                if !cancelGesture {
-                    tapDelayTimer = nil
-                    if recordButtonFrame.contains(value.location) {
-                        if let dragStart = dragStart, Date().timeIntervalSince(dragStart) < tapDelay {
-                            onAction(.recordAudioTap)
-                        } else if state != .waitingForRecordingPermission {
-                            onAction(.send)
-                        }
-                    }
-                    else if lockRecordFrame.contains(value.location) {
-                        onAction(.recordAudioLock)
-                    }
-                    else if deleteRecordFrame.contains(value.location) {
-                        onAction(.deleteRecord)
-                    } else {
-                        onAction(.send)
-                    }
+            .onEnded { _ in
+                guard isRecordingGestureActive else { return }
+
+                if shouldCancelRecording {
+                    onAction(.deleteRecord)
+                } else if viewModel.attachments.recording != nil {
+                    onAction(.send)
                 }
-                dragStart = nil
+
+                isRecordingGestureActive = false
+                withAnimation(.easeInOut(duration: 0.1)) {
+                    shouldCancelRecording = false
+                }
             }
     }
     
