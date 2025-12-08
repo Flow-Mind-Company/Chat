@@ -86,20 +86,30 @@ final class InputViewModel: ObservableObject {
             showPicker = true
         case .send:
             send()
-        case .recordAudioTap, .recordAudioHold:
-            Task {
+        case .recordAudioTap:
+            Task { [weak self] in
+                guard let self else { return }
+
+                if await recorder.isRecording {
+                    await stopRecording()
+                } else {
+                    state = await recorder.isAllowedToRecordAudio ? .isRecordingHold : .waitingForRecordingPermission
+                    recordAudio()
+                }
+            }
+        case .recordAudioHold:
+            Task { [weak self] in
+                guard let self else { return }
+
+                guard !(await recorder.isRecording) else { return }
                 state = await recorder.isAllowedToRecordAudio ? .isRecordingHold : .waitingForRecordingPermission
                 recordAudio()
             }
         case .recordAudioLock:
             break
         case .stopRecordAudio:
-            Task {
-                await recorder.stopRecording()
-                if let _ = attachments.recording {
-                    state = .hasRecording
-                }
-                await recordingPlayer?.reset()
+            Task { [weak self] in
+                await self?.stopRecording()
             }
         case .deleteRecord:
             Task {
@@ -158,6 +168,16 @@ final class InputViewModel: ObservableObject {
 
             attachments.recording?.url = url
         }
+    }
+
+    private func stopRecording() async {
+        await recorder.stopRecording()
+        if let _ = attachments.recording {
+            state = .hasRecording
+        } else if state == .isRecordingHold || state == .waitingForRecordingPermission {
+            state = .empty
+        }
+        await recordingPlayer?.reset()
     }
 }
 
