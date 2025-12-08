@@ -227,7 +227,7 @@ struct InputView: View {
                         .disabled(!state.canSend)
                 } else {
                     recordButton
-                        .highPriorityGesture(dragGesture())
+                        .simultaneousGesture(dragGesture())
                         .onTapGesture {
                             onAction(.recordAudioTap)
                         }
