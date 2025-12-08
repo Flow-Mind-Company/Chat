@@ -225,6 +225,9 @@ struct InputView: View {
                 } else {
                     recordButton
                         .highPriorityGesture(dragGesture())
+                        .onTapGesture {
+                            onAction(.recordAudioTap)
+                        }
                 }
             }
             .viewSize(48)
