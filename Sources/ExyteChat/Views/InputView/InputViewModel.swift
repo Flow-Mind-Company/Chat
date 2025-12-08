@@ -86,20 +86,30 @@ final class InputViewModel: ObservableObject {
             showPicker = true
         case .send:
             send()
-        case .recordAudioTap, .recordAudioHold:
-            Task {
+        case .recordAudioTap:
+            Task { [weak self] in
+                guard let self else { return }
+
+                if await recorder.isRecording {
+                    await stopRecording()
+                } else {
+                    state = await recorder.isAllowedToRecordAudio ? .isRecordingHold : .waitingForRecordingPermission
+                    recordAudio()
+                }
+            }
+        case .recordAudioHold:
+            Task { [weak self] in
+                guard let self else { return }
+
+                guard !(await recorder.isRecording) else { return }
                 state = await recorder.isAllowedToRecordAudio ? .isRecordingHold : .waitingForRecordingPermission
                 recordAudio()
             }
         case .recordAudioLock:
             break
         case .stopRecordAudio:
-            Task {
-                await recorder.stopRecording()
-                if let _ = attachments.recording {
-                    state = .hasRecording
-                }
-                await recordingPlayer?.reset()
+            Task { [weak self] in
+                await self?.stopRecording()
             }
         case .deleteRecord:
             Task {
@@ -129,22 +139,45 @@ final class InputViewModel: ObservableObject {
     }
 
     private func recordAudio() {
-        Task {
+        Task { @MainActor [weak self, recorder] in
+            guard let self else { return }
+
             if await recorder.isRecording { return }
-        }
-        Task { @MainActor [recorder] in
-            attachments.recording = Recording()
+
+            let recording = Recording()
+            attachments.recording = recording
+
             let url = await recorder.startRecording { duration, samples in
                 DispatchQueue.main.async { [weak self] in
                     self?.attachments.recording?.duration = duration
                     self?.attachments.recording?.waveformSamples = samples
                 }
             }
+
+            guard let url else {
+                attachments.recording = nil
+                if state == .isRecordingHold || state == .waitingForRecordingPermission {
+                    state = .empty
+                }
+                return
+            }
+
             if state == .waitingForRecordingPermission {
                 state = .isRecordingHold
             }
+
             attachments.recording?.url = url
         }
+    }
+
+    private func stopRecording() async {
+        await recorder.stopRecording()
+        if let _ = attachments.recording {
+            state = .hasRecording
+        } else if state == .isRecordingHold || state == .waitingForRecordingPermission {
+            state = .empty
+        }
+        await recordingPlayer?.reset()
     }
 }
 
