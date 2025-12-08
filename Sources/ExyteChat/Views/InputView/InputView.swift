@@ -91,8 +91,11 @@ struct InputView: View {
     }
     
     @State private var isRecordingGestureActive = false
+    @State private var hasStartedRecordingFromGesture = false
+    @State private var startRecordingWorkItem: DispatchWorkItem?
     @State private var shouldCancelRecording = false
     private let cancelTranslationThreshold: CGFloat = 60
+    private let holdStartDelay: DispatchTimeInterval = .milliseconds(200)
     
     var body: some View {
         VStack {
@@ -224,7 +227,10 @@ struct InputView: View {
                         .disabled(!state.canSend)
                 } else {
                     recordButton
-                        .highPriorityGesture(dragGesture())
+                        .simultaneousGesture(dragGesture())
+                        .onTapGesture {
+                            onAction(.recordAudioTap)
+                        }
                 }
             }
             .viewSize(48)
@@ -441,29 +447,46 @@ struct InputView: View {
             .onChanged { value in
                 if !isRecordingGestureActive {
                     isRecordingGestureActive = true
+                    hasStartedRecordingFromGesture = false
                     withAnimation(.easeInOut(duration: 0.1)) {
                         shouldCancelRecording = false
                     }
-                    onAction(.recordAudioHold)
+
+                    let workItem = DispatchWorkItem {
+                        hasStartedRecordingFromGesture = true
+                        onAction(.recordAudioHold)
+                    }
+
+                    startRecordingWorkItem?.cancel()
+                    startRecordingWorkItem = workItem
+                    DispatchQueue.main.asyncAfter(deadline: .now() + holdStartDelay, execute: workItem)
                 }
 
-                let isCancelling = value.translation.width < -cancelTranslationThreshold
-                if shouldCancelRecording != isCancelling {
-                    withAnimation(.easeInOut(duration: 0.1)) {
-                        shouldCancelRecording = isCancelling
+                if hasStartedRecordingFromGesture {
+                    let isCancelling = value.translation.width < -cancelTranslationThreshold
+                    if shouldCancelRecording != isCancelling {
+                        withAnimation(.easeInOut(duration: 0.1)) {
+                            shouldCancelRecording = isCancelling
+                        }
                     }
                 }
             }
             .onEnded { _ in
                 guard isRecordingGestureActive else { return }
 
-                if shouldCancelRecording {
-                    onAction(.deleteRecord)
-                } else if viewModel.attachments.recording != nil {
-                    onAction(.send)
+                startRecordingWorkItem?.cancel()
+                startRecordingWorkItem = nil
+
+                if hasStartedRecordingFromGesture {
+                    if shouldCancelRecording {
+                        onAction(.deleteRecord)
+                    } else if viewModel.attachments.recording != nil {
+                        onAction(.send)
+                    }
                 }
 
                 isRecordingGestureActive = false
+                hasStartedRecordingFromGesture = false
                 withAnimation(.easeInOut(duration: 0.1)) {
                     shouldCancelRecording = false
                 }
