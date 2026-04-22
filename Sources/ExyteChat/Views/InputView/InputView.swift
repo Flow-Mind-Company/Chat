@@ -79,6 +79,8 @@ struct InputView: View {
     var messageStyler: (String) -> AttributedString
     var recorderSettings: RecorderSettings = RecorderSettings()
     var localization: ChatLocalization
+    var onAudioRecordingGestureBegin: (@MainActor @Sendable () -> Void)?
+    var onAudioRecordingGestureEnd: (@MainActor @Sendable () -> Void)?
     
     @StateObject var recordingPlayer = RecordingPlayer()
     
@@ -452,6 +454,8 @@ struct InputView: View {
                         shouldCancelRecording = false
                     }
 
+                    onAudioRecordingGestureBegin?()
+
                     let workItem = DispatchWorkItem {
                         hasStartedRecordingFromGesture = true
                         onAction(.recordAudioHold)
@@ -490,6 +494,8 @@ struct InputView: View {
                 withAnimation(.easeInOut(duration: 0.1)) {
                     shouldCancelRecording = false
                 }
+
+                onAudioRecordingGestureEnd?()
             }
     }
     

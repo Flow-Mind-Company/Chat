@@ -128,6 +128,8 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
     var messageFont = UIFontMetrics.default.scaledFont(for: UIFont.systemFont(ofSize: 15))
     var availableInputs: [AvailableInputType] = [.text, .audio, .media]
     var recorderSettings: RecorderSettings = RecorderSettings()
+    var onAudioRecordingGestureBegin: (@MainActor @Sendable () -> Void)?
+    var onAudioRecordingGestureEnd: (@MainActor @Sendable () -> Void)?
     var listSwipeActions: ListSwipeActions = ListSwipeActions()
     var keyboardDismissMode: UIScrollView.KeyboardDismissMode = .none
     
@@ -373,7 +375,9 @@ public struct ChatView<MessageContent: View, InputViewContent: View, MenuAction:
                     availableInputs: availableInputs,
                     messageStyler: messageStyler,
                     recorderSettings: recorderSettings,
-                    localization: localization
+                    localization: localization,
+                    onAudioRecordingGestureBegin: onAudioRecordingGestureBegin,
+                    onAudioRecordingGestureEnd: onAudioRecordingGestureEnd
                 )
             }
         }
@@ -682,6 +686,45 @@ public extension ChatView {
     func setRecorderSettings(_ settings: RecorderSettings) -> ChatView {
         var view = self
         view.recorderSettings = settings
+        return view
+    }
+
+    /// Invoked the moment the user's hold-to-record gesture engages — on the
+    /// raw touch-down inside the mic-button hit area, BEFORE the internal
+    /// hold-start timer and BEFORE `AVAudioSession` is reconfigured to
+    /// `.playAndRecord` / `setActive(true)`.
+    ///
+    /// Use this to pause any ongoing playback (e.g. TTS, media players) so the
+    /// session transition does not produce a category-change glitch and so the
+    /// microphone does not capture the tail of your own output as acoustic
+    /// echo. Pair with `onAudioRecordingGestureEnd(_:)` if you need to resume
+    /// playback or clear host state when the gesture releases — the end
+    /// callback fires regardless of whether recording actually started, so
+    /// fast-release-before-hold-timer is handled symmetrically.
+    ///
+    /// The closure fires on the main actor and may be called multiple times
+    /// per chat session (once per gesture engagement). Never fires for the
+    /// tap-to-record (`recordAudioTap`) path — only for the hold-to-record
+    /// drag gesture.
+    func onAudioRecordingGestureBegin(_ closure: @escaping @MainActor @Sendable () -> Void) -> ChatView {
+        var view = self
+        view.onAudioRecordingGestureBegin = closure
+        return view
+    }
+
+    /// Invoked when the hold-to-record gesture releases, paired with
+    /// `onAudioRecordingGestureBegin(_:)`. Fires exactly once per engagement,
+    /// regardless of whether recording actually started (i.e. whether the
+    /// gesture crossed the internal hold-start timer) or whether the user
+    /// dragged past the cancel threshold.
+    ///
+    /// Use this to undo any side effect performed in the begin callback — for
+    /// example resuming background playback, clearing transient host UI, or
+    /// releasing an audio-route reservation. The closure fires on the main
+    /// actor.
+    func onAudioRecordingGestureEnd(_ closure: @escaping @MainActor @Sendable () -> Void) -> ChatView {
+        var view = self
+        view.onAudioRecordingGestureEnd = closure
         return view
     }
     
